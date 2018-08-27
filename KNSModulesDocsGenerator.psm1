@@ -271,16 +271,61 @@ function Format-Markdown {
     }
 }
 
-function Push-ConfluenceDoc{
+function Update-ConfluenceDoc{
     [CmdletBinding()]
     param(
         [Parameter(Mandatory=$True,ValueFromPipeline=$True)]
         $Content,
         [Parameter(Mandatory=$True)]
-        [string]$RestURL,
+        [Alias('URL')]
+        [string]$ConfluenceURL,
         [Parameter(Mandatory=$True)]
-        [string]$PageID
+        [Alias('PageID','ID')]
+        [string]$ConfluencePageID,
+        [Parameter(Mandatory=$True)]
+        [System.Management.Automation.PSCredential]$Credential
     )
+
+    $MaxJsonLength = 67108864
+    $Headers = @{"Authorization" = "Basic "+[System.Convert]::ToBase64String([System.Text.Encoding]::UTF8.GetBytes(($Credential.UserName+":"+[System.Runtime.InteropServices.marshal]::PtrToStringAuto([System.Runtime.InteropServices.marshal]::SecureStringToBSTR($Credential.Password)) )))}
+    $ContentType = "application/json"
+    $Call = "content/$($ConfluencePageID)?expand=body.storage,version,space,ancestors"
+    try {
+        $CurrentConfluence = Invoke-WebRequest -Method GET -Headers $Headers -Uri ($ConfluenceURL + $Call)
+    }catch{
+        Write-Host "Error: "+ $_.Exception.Message
+        Return $False
+    }
+    
+
+    $Body = @{
+        "id" = ($CurrentConfluence.id)
+        "type" = "page"
+        "title" = ($CurrentConfluence.title)
+        "version" = @{
+             "number" = ($CurrentConfluence.version.number + 1)
+        }
+       "status" = "current"
+        "body" = @{
+            "storage" = @{
+                 "value" = $Content
+                 "representation" = "wiki"
+            }
+       }
+    }
+
+    #$Body = $Body | ConvertTo-Json
+    #$ContentType = "application/json"
+    #$Call = "content/$($ConfluencePageID)"
+
+    #$UpdateConfluence = Invoke-WebRequest -Method PUT -Uri ($ConfluenceURL + $Call) -Body $Body -ContentType $ContentType
+
+    #$JSONSerial = New-Object -TypeName System.Web.Script.Serialization.JavaScriptSerializer
+    #$JSONSerial.MaxJsonLength = $MaxJsonLength
+    
+    #$UpdateConfluence = ($JSONSerial.DeserializeObject($UpdateConfluence))
+
+    #write-output $UpdateConfluence
 }
 
 
