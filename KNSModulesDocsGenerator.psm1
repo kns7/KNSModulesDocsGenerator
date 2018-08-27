@@ -271,6 +271,18 @@ function Format-Markdown {
     }
 }
 
+function Push-ConfluenceDoc{
+    [CmdletBinding()]
+    param(
+        [Parameter(Mandatory=$True,ValueFromPipeline=$True)]
+        $Content,
+        [Parameter(Mandatory=$True)]
+        [string]$RestURL,
+        [Parameter(Mandatory=$True)]
+        [string]$PageID
+    )
+}
+
 
 
 
