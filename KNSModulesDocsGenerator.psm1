@@ -27,7 +27,7 @@ function Get-ModuleDocumentation {
         $ModuleName
     )
 
-    $i = 0
+    # Get Commands Informations
     $commandsHelp = (Get-Command -module $ModuleName) | get-help -full | Where-Object {! $_.name.EndsWith('.ps1')}
 
     foreach ($h in $commandsHelp){
@@ -41,7 +41,7 @@ function Get-ModuleDocumentation {
     
         # Parse the related links and assign them to a links hashtable.
         if(($h.relatedLinks | Out-String).Trim().Length -gt 0) {
-            $links = $h.relatedLinks.navigationLink | % {
+            $links = $h.relatedLinks.navigationLink | ForEach-Object {
                 if($_.uri){ @{name = $_.uri; link = $_.uri; target='_blank'} }
                 if($_.linkText){ @{name = $_.linkText; link = "#$($_.linkText)"; cssClass = 'psLink'; target='_top'} }
             }
@@ -50,7 +50,7 @@ function Get-ModuleDocumentation {
     
         # Add parameter aliases to the object.
         foreach($p in $h.parameters.parameter ){
-            $paramAliases = ($cmdHelp.parameters.values | where name -like $p.name | select aliases).Aliases
+            $paramAliases = ($cmdHelp.parameters.values | Where-Object name -like $p.name | Select-Object aliases).Aliases
             if($paramAliases){
                 $p | Add-Member Aliases "$($paramAliases -join ', ')" -Force
             }
@@ -61,11 +61,22 @@ function Get-ModuleDocumentation {
     if (!$totalCommands) {
         $totalCommands = 1
     }
+
+
+    # Get Module Informations (Version, Description)
+    $Manifest = Test-ModuleManifest (Get-Module -Name $ModuleName -list).Path
+
+
+
+    # Building Return Object
     $return = @{
         moduleName=$ModuleName;
+        version=$Manifest.version.ToString();
+        description=$Manifest.Description;
         Content=$commandsHelp;
         totalCommands=$totalCommands
     }
+
     Write-Output $return
 }
 
@@ -88,7 +99,7 @@ function Format-ConfluenceMarkup {
     $return += "\\`n\\`n"
 
     $progress = 0
-    $ContentObject.Content | % {
+    $ContentObject.Content | ForEach-Object {
         # Update the ProgressBar
         Update-Progress $_.Name 'Documentation' $progress $ContentObject.totalCommands
         $progress++
@@ -111,7 +122,7 @@ function Format-ConfluenceMarkup {
         # Document Aliases
         if (!($_.alias.Length -eq 0)) {
             $return += "h3. $($_.Name) Aliases`n"
-            $_.alias | % {
+            $_.alias | ForEach-Object {
                 $return += " - $($_.Name)`n"
             }
         }
@@ -119,7 +130,7 @@ function Format-ConfluenceMarkup {
         # Document Parameters
         if($_.parameters){
             $return += "h3. Parameters`n||Name||Alias||Description||Required?||Pipeline Input||Default Value||`n"
-            $_.parameters.parameter | % {
+            $_.parameters.parameter | ForEach-Object {
                 $return += "|$(FixMarkupString $_.Name $false $true)|$(FixMarkupString $_.Aliases $false $true)|$(FixMarkupString $($_.Description  | out-string).Trim() $true $true)|$(FixMarkupString $_.Required $false $true)|$(FixMarkupString $_.PipelineInput $false $true)|$(FixMarkupString $_.DefaultValue $false $true)|`n"
             }
         }
@@ -145,7 +156,7 @@ function Format-ConfluenceMarkup {
         # Document Examples
         if(($_.examples | Out-String).Trim().Length -gt 0) {
             $return += "h3. Examples`n"
-            $_.examples.example | % {
+            $_.examples.example | ForEach-Object {
                 $return += "{code:title=$(FixMarkupString($_.title.Trim(('-',' '))))|theme=Confluence|linenumbers=true|language=Powershell|firstline=0001|collapse=false}`n$(FixMarkdownCodeString($_.code | out-string ))`n{code}`n"
                 $return += "`n$(FixMarkupString($_.remarks | out-string ) $true)`n"
             }
@@ -154,7 +165,7 @@ function Format-ConfluenceMarkup {
         # Document Links
         if(($_.relatedLinks | Out-String).Trim().Length -gt 0) {
             $return += "h3. Links`n"
-            $_.links | % {
+            $_.links | ForEach-Object {
                 $return += " - [$_.name]($_.link)`n"
             }
         }
@@ -176,21 +187,25 @@ function Format-Markdown {
         [Parameter(Mandatory=$True,ValueFromPipeline=$True,HelpMessage="Content Generated from Get-ModuleDocumentation")]
         $ContentObject,
         [Parameter(Mandatory=$False,HelpMessage="If specified, the content will be exported to this file")]
-        $FileName,
-        [Parameter()]
-        [switch]$NoTableOfContent
+        $FileName
     )
     
     $return = "`n`n"
-    $return += "# $($ContentObject.moduleName)`n"
+    $return += "# PowerShell Module `"$($ContentObject.moduleName)`"`n"
+    
+    $return += "Version $($ContentObject.version)`n"
+
+    if(-not ([string]::IsNullOrEmpty($ContentObject))){
+        $return += "`n$($ContentObject.Description)`n"
+    }
 
     $progress = 0
-    $ContentObject.Content | % {
+    $ContentObject.Content | ForEach-Object {
         # Update the ProgressBar
         Update-Progress $_.Name 'Documentation' $progress $ContentObject.totalCommands
         $progress++
 
-        $return += "## $(FixMarkdownString($_.Name))`n"
+        $return += "`n`n## $(FixMarkdownString($_.Name))`n"
 
         $synopsis = $_.synopsis.Trim()
         $syntax = $_.syntax | out-string
@@ -198,55 +213,69 @@ function Format-Markdown {
             $tmp = $synopsis
             $synopsis = $syntax
             $syntax = $tmp
-            $return += "### Synopsis`n$(FixMarkdownString($syntax))`n"
+            $return += "`n### SYNOPSIS`n$(FixMarkdownString($syntax))`n"
         }
 
-        $return += "### Syntax`n"
+        $return += "`n### SYNTAX`n"
         $return += "``````powershell`n"
         $return += "$(TrimAllLines($synopsis))`n"
         $return +="```````n"
 
         # Document Aliases
         if (!($_.alias.Length -eq 0)) {
-            $return += "### $($_.Name) Aliases`n"
-            $_.alias | % {
+            $return += "`n### $($_.Name) ALIASES`n"
+            $_.alias | ForEach-Object {
                 $return += " - $($_.Name)`n"
             }
         }
 
+        # Document Description
+        if ($_.description) {
+            $return += "`n### DESCRIPTION`n"
+            $description = $_.description | Out-String
+            $return += "$(TrimAllLines($description))`n"
+        }
+
         # Document Parameters
         if ($_.parameters) {
-            $return += "### Parameters`n"
+            $return += "`n### PARAMETERS`n"
             $return += "| Name  | Alias  | Description | Required? | Pipeline Input | Default Value |`n"
             $return += "| - | - | - | - | - | - |`n"
 
-            $_.parameters.parameter | % {
+            $_.parameters.parameter | ForEach-Object {
                 $return += "| <nobr>$(FixMarkdownString($_.Name))</nobr> | $(FixMarkdownString($_.Aliases)) | $(FixMarkdownString(($_.Description  | out-string).Trim())) | $(FixMarkdownString($_.Required)) | $(FixMarkdownString($_.PipelineInput)) | $(FixMarkdownString($_.DefaultValue)) |`n"
+            }
+
+            if($_.parameters | Out-String | Select-String -Pattern "<CommonParameters>" -SimpleMatch){
+                $return += "`n`n_This cmdlet supports the common parameters: Verbose, Debug,
+                ErrorAction, ErrorVariable, WarningAction, WarningVariable,
+                OutBuffer, PipelineVariable, and OutVariable. For more information, see
+                about_CommonParameters (https:/go.microsoft.com/fwlink/?LinkID=113216)._`n"
             }
         }
 
         # Document Inputs
         $inputTypes = $(FixMarkdownString($_.inputTypes  | out-string))
         if ($inputTypes.Length -gt 0 -and -not $inputTypes.Contains('inputType')) {
-            $return += "### Inputs`n - $inputTypes`n"
+            $return += "`n### INPUTS`n - $inputTypes`n"
         }
 
         # Document Return Values
         $returnValues = $(FixMarkdownString($_.returnValues  | out-string))
         if ($returnValues.Length -gt 0 -and -not $returnValues.StartsWith("returnValue")) {
-            $return += "### Outputs`n - $returnValues`n"
+            $return += "`n### OUTPUTS`n - $returnValues`n"
         }
 
         # Document Notes
         $notes = $(FixMarkdownString($_.alertSet  | out-string))
         if ($notes.Trim().Length -gt 0) {
-            $return += "### Notes`n$notes`n"
+            $return += "`n### NOTES`n$notes`n"
         }
 
         # Document Examples
         if (($_.examples | Out-String).Trim().Length -gt 0) {
-            $return += "### Examples`n"
-            $_.examples.example | % {
+            $return += "`n### EXAMPLES`n"
+            $_.examples.example | ForEach-Object {
                 $return += "`n**$(FixMarkdownString($_.title.Trim(('-',' '))))**`n"
                 $return += "``````powershell`n"
                 $return += "$(FixMarkdownCodeString($_.code | out-string ))`n"
@@ -257,8 +286,8 @@ function Format-Markdown {
 
         # Document Links
         if (($_.relatedLinks | Out-String).Trim().Length -gt 0) {
-            $return += "### Links`n"
-            $_.links | % { 
+            $return += "`n### LINKS`n"
+            $_.links | ForEach-Object { 
                 $return += "`n - [$($_.name)]($($_.link))`n"
             }
         }
